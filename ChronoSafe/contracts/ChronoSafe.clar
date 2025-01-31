@@ -89,3 +89,24 @@
           total-withdrawn: (+ (get total-withdrawn history) amount) })
       (ok amount))))
 
+;; Emergency withdrawal - Partial Withdrawal Based on Share
+(define-public (emergency-withdraw-partial
+    (vault-id uint))
+  (let ((vault (unwrap! (map-get? vaults { vault-id: vault-id }) err-no-vault))
+        (beneficiary-info (unwrap! 
+          (map-get? beneficiaries { vault-id: vault-id, beneficiary: tx-sender })
+          err-unauthorized-access)))
+    (begin
+      (asserts! (get can-emergency-withdraw beneficiary-info) err-unauthorized-access)
+      (asserts! (is-some (get emergency-contact vault)) err-invalid-params)
+      (asserts! (>= block-height (+ (get unlock-height vault) (var-get emergency-delay))) err-locked)
+      (let ((total-balance (get balance vault))
+            (share (/ (* total-balance (get share-percentage beneficiary-info)) u100)))
+        (begin
+          (asserts! (> share u0) err-invalid-params)
+          (try! (as-contract (stx-transfer? share tx-sender tx-sender)))
+          (map-set vaults
+            { vault-id: vault-id }
+            (merge vault { balance: (- total-balance share) }))
+          (ok share))))))
+
